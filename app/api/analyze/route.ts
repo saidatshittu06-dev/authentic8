@@ -46,7 +46,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Gemini is not configured on the server.' }, { status: 500 })
     }
 
-    const contents = [
+    const parts = [
       { text: `${systemInstruction}\n\nMedicine name supplied by the user: ${drug}` },
       ...images.map((image: string) => {
         const match = image.match(/^data:(image\/[\w.+-]+);base64,(.+)$/)
@@ -55,12 +55,20 @@ export async function POST(request: Request) {
       }),
     ]
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`
+    const response = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ role: 'user', parts: contents }], generationConfig: { temperature: 0.1, responseMimeType: 'application/json' } }),
+      body: JSON.stringify({
+        contents: [{ parts }],
+        generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
+      }),
     })
-    if (!response.ok) throw new Error(`Gemini request failed (${response.status}).`)
+    if (!response.ok) {
+      const providerError = await response.text()
+      console.error('[v0] Gemini provider response:', providerError)
+      throw new Error(`Gemini request failed (${response.status}). ${providerError.slice(0, 240)}`)
+    }
     const data = await response.json()
     const text = data.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || '').join('')
     if (!text) throw new Error('Gemini did not return an analysis.')
