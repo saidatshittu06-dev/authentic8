@@ -70,11 +70,14 @@ function Scan({ onResult, onLibrary }: { onResult: (result: Result) => void; onL
     try {
       const compressedPhotos = await Promise.all(photos.map((photo) => compressImage(photo)))
       const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ images: compressedPhotos, drug: drug.trim() }) })
-      const responseText = await response.text()
-      let data: { error?: string; [key: string]: unknown } = {}
-      try { data = responseText ? JSON.parse(responseText) : {} } catch { data = {} }
-      if (!response.ok) throw new Error(data.error || responseText || `Analysis request failed (${response.status}).`)
-      onResult(data as unknown as Result)
+      if (!response.ok) {
+        const errorText = await response.text()
+        let errorMessage = errorText || `Analysis request failed (${response.status}).`
+        try { errorMessage = JSON.parse(errorText).error || errorMessage } catch { /* The server may return a plain-text gateway error. */ }
+        throw new Error(errorMessage)
+      }
+      const data = await response.json()
+      onResult(data as Result)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Unable to analyze these images. Please try again.')
     } finally { setLoading(false) }
