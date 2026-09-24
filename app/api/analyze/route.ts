@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 
-const MODEL = 'gemini-2.5-flash'
+const MODEL = 'gemini-3.8-flash'
 
 const systemInstruction = `You are a packaging authenticity analyst. Evaluate every uploaded medicine-package image together and return only valid JSON.
 
