@@ -33,6 +33,22 @@ function Home({ onStart, onLibrary }: { onStart: () => void; onLibrary: () => vo
   return <section className="home-screen"><BrandMark /><h1>Authentic8</h1><p>Check before you take it.</p><button className="outline-cta" onClick={onStart}>Get started <ArrowRight size={22} aria-hidden="true" /></button><button className="text-link" onClick={onLibrary}>Browse the red flags library <ArrowRight size={16} /></button></section>
 }
 
+async function compressImage(dataUrl: string, maxDimension = 1024, quality = 0.7): Promise<string> {
+  if (!dataUrl.startsWith('data:image/')) return dataUrl
+  const image = new Image()
+  image.crossOrigin = 'anonymous'
+  image.src = dataUrl
+  await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('One of the selected images could not be read.')) })
+  const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('Your browser could not prepare the selected images.')
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+  return canvas.toDataURL('image/jpeg', quality)
+}
+
 function Scan({ onResult, onLibrary }: { onResult: (result: Result) => void; onLibrary: () => void }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [photos, setPhotos] = useState<string[]>([])
@@ -50,12 +66,15 @@ function Scan({ onResult, onLibrary }: { onResult: (result: Result) => void; onL
   const runCheck = async () => {
     if (!drug.trim()) { setNotice('Add the medicine name so we can compare it against known packaging.'); return }
     if (!photos.length) { setNotice('Add at least one packaging photo to start the check.'); return }
-    setLoading(true); setNotice('Analyzing all packaging panels with Gemini Vision…')
+    setLoading(true); setNotice('Preparing packaging panels for Gemini Vision…')
     try {
-      const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ images: photos, drug: drug.trim() }) })
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Unable to analyze these images.')
-      onResult(data)
+      const compressedPhotos = await Promise.all(photos.map((photo) => compressImage(photo)))
+      const response = await fetch('/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ images: compressedPhotos, drug: drug.trim() }) })
+      const responseText = await response.text()
+      let data: { error?: string; [key: string]: unknown } = {}
+      try { data = responseText ? JSON.parse(responseText) : {} } catch { data = {} }
+      if (!response.ok) throw new Error(data.error || responseText || `Analysis request failed (${response.status}).`)
+      onResult(data as unknown as Result)
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Unable to analyze these images. Please try again.')
     } finally { setLoading(false) }
