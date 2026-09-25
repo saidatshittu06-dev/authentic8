@@ -56,20 +56,33 @@ export async function POST(request: Request) {
     ]
 
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
-      }),
+    const requestBody = JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
     })
-    if (!response.ok) {
-      const providerError = await response.text()
-      console.error('[v0] Gemini provider response:', providerError)
-      throw new Error(`Gemini request failed (${response.status}). ${providerError.slice(0, 240)}`)
+    const maxRetries = 3
+    let response: Response
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      response = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: requestBody,
+      })
+
+      if (response.status !== 503 || attempt === maxRetries) break
+
+      const delay = 1000 * 2 ** attempt
+      console.warn(`[v0] Gemini returned 503; retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`)
+      await new Promise((resolve) => setTimeout(resolve, delay))
     }
-    const data = await response.json()
+
+    if (!response!.ok) {
+      const providerError = await response!.text()
+      console.error('[v0] Gemini provider response:', providerError)
+      throw new Error(`Gemini request failed (${response!.status}). ${providerError.slice(0, 240)}`)
+    }
+    const data = await response!.json()
     const text = data.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || '').join('')
     if (!text) throw new Error('Gemini did not return an analysis.')
 
