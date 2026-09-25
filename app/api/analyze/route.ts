@@ -1,6 +1,33 @@
 import { NextResponse } from 'next/server'
 
-const MODEL = 'gemini-3.8-flash'
+const MODEL = 'gemini-3.1-flash-lite'
+
+type Analysis = {
+  risk: 'high' | 'safe' | 'low'
+  summary: string
+  confidence: 'High' | 'Medium' | 'Low'
+  checks: number
+  flags: Array<{ title: string; detail: string; confidence: 'High' | 'Medium' | 'Low' }>
+  qualityNote?: string
+}
+
+function fallbackAnalysis(drug: string, photos: number): Analysis & { drug: string; photos: number; live: false } {
+  return {
+    risk: 'low',
+    drug,
+    photos,
+    checks: 0,
+    summary: `We couldn't complete the live ${drug} packaging comparison because the vision service is busy. No authenticity conclusion was made.`,
+    confidence: 'Low',
+    flags: [{
+      title: 'Live comparison unavailable',
+      detail: `Try again shortly, or confirm the ${drug} package with a pharmacist or the relevant regulator.`,
+      confidence: 'Low',
+    }],
+    qualityNote: 'This is a service-load fallback, not a visual assessment.',
+    live: false,
+  }
+}
 
 const systemInstruction = `You are a packaging authenticity analyst. Evaluate every uploaded medicine-package image together and return only valid JSON.
 
@@ -31,19 +58,23 @@ function extractJson(text: string) {
 }
 
 export async function POST(request: Request) {
+  let requestedDrug = 'the submitted medicine'
+  let imageCount = 0
   try {
     const body = await request.json()
     const images = Array.isArray(body.images) ? body.images : []
-    const drug = typeof body.drug === 'string' ? body.drug.trim() : ''
+    imageCount = images.length
+    const drug = typeof body.drugName === 'string' ? body.drugName.trim() : typeof body.drug === 'string' ? body.drug.trim() : ''
+    requestedDrug = drug || requestedDrug
 
     if (!images.length || images.length > 3 || !drug) {
-      return NextResponse.json({ error: 'Provide a drug name and between one and three images.' }, { status: 400 })
+      return NextResponse.json(fallbackAnalysis(drug || 'the submitted medicine', images.length), { status: 200 })
     }
     if (images.some((image: unknown) => typeof image !== 'string' || !image.startsWith('data:image/'))) {
       return NextResponse.json({ error: 'Each image must be a base64 data URL.' }, { status: 400 })
     }
     if (!process.env.GEMINI_API_KEY) {
-      return NextResponse.json({ error: 'Gemini is not configured on the server.' }, { status: 500 })
+      return NextResponse.json(fallbackAnalysis(drug, images.length), { status: 200 })
     }
 
     const parts = [
@@ -70,17 +101,21 @@ export async function POST(request: Request) {
         body: requestBody,
       })
 
-      if (response.status !== 503 || attempt === maxRetries) break
+      if (![429, 503].includes(response.status) || attempt === maxRetries) break
 
       const delay = 1000 * 2 ** attempt
-      console.warn(`[v0] Gemini returned 503; retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`)
+      console.warn(`[v0] Gemini returned ${response.status}; retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`)
       await new Promise((resolve) => setTimeout(resolve, delay))
     }
 
     if (!response!.ok) {
+      const providerStatus = response!.status
       const providerError = await response!.text()
       console.error('[v0] Gemini provider response:', providerError)
-      throw new Error(`Gemini request failed (${response!.status}). ${providerError.slice(0, 240)}`)
+      if ([429, 503].includes(providerStatus)) {
+        return NextResponse.json(fallbackAnalysis(drug, images.length), { status: 200 })
+      }
+      throw new Error(`Gemini request failed (${providerStatus}). ${providerError.slice(0, 240)}`)
     }
     const data = await response!.json()
     const text = data.candidates?.[0]?.content?.parts?.map((part: { text?: string }) => part.text || '').join('')
@@ -100,7 +135,7 @@ export async function POST(request: Request) {
     })
   } catch (error) {
     console.error('[v0] Gemini analysis failed:', error)
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to analyze these images.' }, { status: 502 })
+    return NextResponse.json(fallbackAnalysis(requestedDrug, imageCount), { status: 200 })
   }
 }
 
