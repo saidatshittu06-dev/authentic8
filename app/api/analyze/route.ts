@@ -36,6 +36,11 @@ Inspect these dimensions:
 2. Brand name, font alignment, spelling, logo placement, and manufacturer details. Compare the visible manufacturer against the supplied drug name and known packaging conventions; mention examples such as Drugfield Pharmaceuticals only when visible or relevant.
 3. Packaging integrity and print quality across all panels: seals, holograms, tamper evidence, color consistency, sharpness, alignment, batch/expiry printing, and signs of reprint or alteration.
 
+REGULATORY CONTEXT (NAFDAC / West Africa):
+1. ALL pre-packaged food, drugs, medical devices, oral care products (including toothpastes), and cosmetics distributed in Nigeria legally REQUIRE a NAFDAC Registration Number or NAFDAC listing number.
+2. Do NOT state that cosmetics or toothpastes are exempt from NAFDAC registration.
+3. If toothpaste, soap, or cosmetic packaging is missing a NAFDAC number, flag it under "Regulatory Classification" or "Registration Status" as missing a required regional registration code.
+
 Do not claim a medicine is safe or counterfeit with certainty. This is a visual screening only. Use confidence High, Medium, or Low for each finding. If image quality is insufficient, explain exactly what is not assessable.
 
 Return this exact JSON shape:
